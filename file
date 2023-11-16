@@ -1,0 +1,124 @@
+import requests
+import json
+import smtplib
+from datetime import datetime, timedelta
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import time
+
+# API documentation: https://api.vandudsigten.dk/doc/beaches
+
+print("Running...")
+
+
+def todays_wind_speed(wind_speed):
+    if wind_speed == "":
+        return "."
+    elif int(wind_speed) <= 4:
+        return "(Stille vind)."
+    elif int(wind_speed) > 4 and int(wind_speed) <= 11:
+        return "(Moderat vind)."
+    elif int(wind_speed) > 11 and int(wind_speed) <= 17:
+        return "(Kraftig vind)."
+    elif int(wind_speed) > 17:
+        return "(Meget kraftig vind)."
+    else:
+        return "."
+
+# recipient emails
+modtager_emails = []
+
+sender_email = "example_email@outlook.com"
+
+names = {"example": "example_name",
+          "example": "example_name",
+          "example": "example_name",
+          "example": "example_name"}
+
+english_to_danish_days = {
+    "Monday": "Mandag", "Tuesday": "Tirsdag", "Wednesday": "Onsdag",
+    "Thursday": "Torsdag", "Friday": "Fredag", "Saturday": "Lørdag", "Sunday": "Søndag"}
+   
+water_quality_check = {1: "Rødt flag",
+                       2: "Grønt flag",
+                       3: "Gult flag",
+                       4: "gråt flag"}
+
+weather_status_check = {1: "Solskin",
+                        2: "Letskyet",
+                        3: "Halvskyet",
+                        4: "Skyet",
+                        5: "Enkelte regnbyger, perioder med sol",
+                        6: "Enkelte tordenbyger, perioder med sol",
+                        7: "Nogen regn eller slud, perioder med sol",
+                        8: "Nogen sne, perioder med sol",
+                        9: "Let regn",
+                        10: "Regn",
+                        11: "Torden og regn",
+                        12: "Slud",
+                        13: "Sne",
+                        14: "Torden og sne",
+                        15: "Tåge"}
+
+
+while True:
+    time.sleep(2)
+    print("Checking...")
+    now = datetime.now()
+    day1 = datetime.now().strftime("%Y-%m-%d")
+    day2 = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    day3 = (now + timedelta(days=2)).strftime("%Y-%m-%d")
+    day4 = (now + timedelta(days=3)).strftime("%Y-%m-%d")
+    days = [day1, day2, day3, day4]
+    if now.weekday() > 4:
+        print("Its weekend")
+        time.sleep(25200)
+    elif now.weekday() < 5 and (now.hour) == 8:
+        print("Executing task...")
+        response = requests.get("http://api.vandudsigten.dk/beaches")
+        data = response.json()
+        data_by_day = {}
+        for day in days: # Get data for each day and save it to a dictionary
+            for beach in data:
+                if beach["name"] == "Sandkaj Badezone":
+                    for entry in beach["data"]:
+                        if entry["date"] == day:
+                            day_data = {
+                        "water_quality": entry["water_quality"],
+                        "water_temperature": entry["water_temperature"],
+                        "weather_status": entry["weather_type"],
+                        "air_temperature": entry["air_temperature"],
+                        "vand_status": water_quality_check[int(entry["water_quality"])],
+                        "wind_speed": entry["wind_speed"]
+                    }
+                    data_by_day[day] = day_data
+                    break
+        for mail in modtager_emails:
+            modtager_navn = names[mail]
+            email_body = f"Hej {modtager_navn}\n\n"
+            for day in days:
+                info = data_by_day[day]
+                today_wind = todays_wind_speed(info["wind_speed"])
+                day_datetime = datetime.strptime(day, "%Y-%m-%d")
+                if day_datetime.weekday() < 5:  # Weekdays are 0-4 (Monday to Friday)
+                    day_of_week = day_datetime.strftime("%A")
+                    day_of_week_danish = english_to_danish_days[day_of_week]  # Translate to Danish
+                    weather_message = f", samt vejret er {weather_status_check[int(info['weather_status'])]}" if 1 <= int(info["weather_status"]) <= 15 else ""
+                    if day == day1:
+                        # First day's information
+                        email_body += (f"I dag er der {info['vand_status']}, og vandet er {info['water_temperature']} grader{weather_message} {today_wind}\n\n")
+                    else:
+                        # Subsequent days' information
+                        email_body += (f"{day_of_week_danish}: er der {info['vand_status']}, og vandet er {info['water_temperature']} grader{weather_message} {today_wind}\n\n")  # Note the extra \n for spacing
+            email_body += f"God fornøjelse!\n\nVenlig Hilsen\nBade robotten"
+            message = MIMEMultipart()
+            message["From"] = sender_email
+            message["To"] = mail
+            message["Subject"] = "Dagens Bade opdatering"
+            message.attach(MIMEText(email_body, "plain"))
+            with smtplib.SMTP("smtp.office365.com", 587) as server:
+                server.starttls()
+                server.login(sender_email, "password_here")
+                server.sendmail(sender_email, mail, message.as_string())
+            print("Email sent")
+        time.sleep(82800)
